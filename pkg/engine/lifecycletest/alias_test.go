@@ -1214,6 +1214,102 @@ func TestAliasURNs(t *testing.T) {
 	}}, []display.StepOp{deploy.OpSame}, false, "urn-remove-parent-relationship")
 }
 
+// Test that adopting an MLC component resource into a component resource works as expected.
+func TestAliasAdoptRemoteComponentIntoComponent(t *testing.T) {
+	t.Parallel()
+
+	loaders := []*deploytest.ProviderLoader{
+		deploytest.NewProviderLoader("pkgA", semver.MustParse("1.0.0"), func() (plugin.Provider, error) {
+			return &deploytest.Provider{
+				ConstructF: func(
+					_ context.Context,
+					req plugin.ConstructRequest,
+					monitor *deploytest.ResourceMonitor,
+				) (plugin.ConstructResponse, error) {
+					assert.Equal(t, "pkgA:m:typC", string(req.Type))
+
+					resp, err := monitor.RegisterResource(req.Type, req.Name, false, deploytest.ResourceOptions{
+						Parent: req.Parent,
+					})
+					require.NoError(t, err)
+
+					_, err = monitor.RegisterResource("pkgA:m:typA", "resA", true, deploytest.ResourceOptions{
+						Parent: resp.URN,
+					})
+					require.NoError(t, err)
+
+					return plugin.ConstructResponse{
+						URN: resp.URN,
+					}, nil
+				},
+			}, nil
+		}),
+	}
+
+	firstRun := true
+	programF := deploytest.NewLanguageRuntimeF(func(_ plugin.RunInfo, monitor *deploytest.ResourceMonitor) error {
+		resComponent, err := monitor.RegisterResource("foo:bar:Component", "resComponent", false)
+		require.NoError(t, err)
+
+		if firstRun {
+			// The first run the MLC component resource is unparented.
+			_, err = monitor.RegisterResource("pkgA:m:typC", "resC", false, deploytest.ResourceOptions{
+				Remote: true,
+			})
+			require.NoError(t, err)
+		} else {
+			// In the next run, it is adopted into the component resource, with an alias.
+			_, err = monitor.RegisterResource("pkgA:m:typC", "resC", false, deploytest.ResourceOptions{
+				Remote: true,
+				Parent: resComponent.URN,
+				Aliases: []*pulumirpc.Alias{
+					{
+						Alias: &pulumirpc.Alias_Spec_{
+							Spec: &pulumirpc.Alias_Spec{
+								Parent: &pulumirpc.Alias_Spec_NoParent{
+									NoParent: true,
+								},
+							},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		return nil
+	})
+	hostF := deploytest.NewPluginHostF(nil, nil, programF, loaders...)
+
+	p := &TestPlan{
+		Options: TestUpdateOptions{T: t, HostF: hostF},
+	}
+
+	project := p.GetProject()
+
+	// Run an initial update where we create a regular component resource and unparented MLC component resource.
+	snap, err := TestOp(Update).RunStep(project, p.GetTarget(t, nil), p.Options, false, p.BackendClient, nil, "0")
+	assert.NoError(t, err)
+	assert.NotNil(t, snap)
+	assert.Len(t, snap.Resources, 4)
+
+	// Now run an update where we adopt the MLC component resource into the component resource, with an alias.
+	// We don't expect to see any creates/deletes.
+	firstRun = false
+	snap, err = TestOp(Update).RunStep(project, p.GetTarget(t, snap), p.Options, false, p.BackendClient,
+		func(project workspace.Project, target deploy.Target,
+			entries JournalEntries, events []Event, err error,
+		) error {
+			for _, entry := range entries {
+				assert.Equal(t, deploy.OpSame, entry.Step.Op())
+			}
+			return err
+		}, "1")
+	assert.NoError(t, err)
+	assert.NotNil(t, snap)
+	assert.Len(t, snap.Resources, 4)
+}
+
 func TestDuplicatesDueToAliases(t *testing.T) {
 	t.Parallel()
 
