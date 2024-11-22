@@ -241,9 +241,6 @@ func GenerateProject(
 		if p.Name == PulumiToken {
 			continue
 		}
-		if err := p.ImportLanguages(map[string]schema.Language{"nodejs": Importer}); err != nil {
-			return err
-		}
 
 		packageName := "@pulumi/" + p.Name
 		err := p.ImportLanguages(map[string]schema.Language{"nodejs": Importer})
