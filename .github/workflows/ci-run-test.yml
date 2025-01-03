@@ -140,6 +140,10 @@ jobs:
           } >> "$GITHUB_ENV"
           # For debugging:
           ps aux
+      - name: Install tsc on windows
+        if: ${{ runner.os == 'windows' }}
+        run: |
+          npm install typescript -g
       - name: "macOS use coreutils"
         if: ${{ runner.os == 'macOS' }}
         run: |
