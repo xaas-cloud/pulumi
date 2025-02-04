@@ -1764,7 +1764,7 @@ func TestLogDebugPython(t *testing.T) {
 func TestDynamicProviderPython(t *testing.T) {
 	t.Parallel()
 
-	// TODO: Unskip this test on windows
+	// TODO[pulumi/pulumi#18439]: Unskip this test on windows
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping test on windows")
 	}
