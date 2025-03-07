@@ -64,10 +64,16 @@ type Options struct {
 	// whether or not to exit after refreshing (i.e. this is specifically a
 	// refresh operation).
 	RefreshOnly bool
+	// if specified, don't operate on the specified resources
+	SkipTargets UrnTargets
 	// if specified, only operate on the specified resources.
 	Targets UrnTargets
+	// if specified, ignore the specified resources
+	Excludes UrnTargets
 	// if specified, mark the specified resources for replacement.
 	ReplaceTargets UrnTargets
+	// true if target dependents should be excluded automatically.
+	ExcludeDependents bool
 	// true if target dependents should be computed automatically.
 	TargetDependents bool
 	// whether or not to use legacy diffing behavior.
