@@ -64,8 +64,6 @@ type Options struct {
 	// whether or not to exit after refreshing (i.e. this is specifically a
 	// refresh operation).
 	RefreshOnly bool
-	// if specified, don't operate on the specified resources
-	SkipTargets UrnTargets
 	// if specified, only operate on the specified resources.
 	Targets UrnTargets
 	// if specified, ignore the specified resources
