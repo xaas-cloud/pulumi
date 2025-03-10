@@ -25,6 +25,7 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/resource/deploy/providers"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/diag"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/diag/colors"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/promise"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/plugin"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
@@ -950,16 +951,16 @@ func (s *ReadStep) Skip() {
 // resource by reading its current state from its provider plugin. These steps are not issued by the step generator;
 // instead, they are issued by the deployment executor as the optional first step in deployment execution.
 type RefreshStep struct {
-	deployment *Deployment           // the deployment that produced this refresh
-	old        *resource.State       // the old resource state, if one exists for this urn
-	new        *resource.State       // the new resource state, to be used to query the provider
-	provider   plugin.Provider       // the optional provider to use.
-	diff       plugin.DiffResult     // the diff between the cloud provider and the state file
-	reg        RegisterResourceEvent // the registration intent to convey a URN back to, if applicable
+	deployment *Deployment                                // the deployment that produced this refresh
+	old        *resource.State                            // the old resource state, if one exists for this urn
+	new        *resource.State                            // the new resource state, to be used to query the provider
+	provider   plugin.Provider                            // the optional provider to use.
+	diff       plugin.DiffResult                          // the diff between the cloud provider and the state file
+	cts        *promise.CompletionSource[*resource.State] // the completion source to signal when the refresh is complete
 }
 
 // NewRefreshStep creates a new Refresh step.
-func NewRefreshStep(deployment *Deployment, reg RegisterResourceEvent, old *resource.State) Step {
+func NewRefreshStep(deployment *Deployment, cts *promise.CompletionSource[*resource.State], old *resource.State) Step {
 	contract.Requiref(old != nil, "old", "must not be nil")
 
 	// NOTE: we set the new state to the old state by default so that we don't interpret step failures as deletes.
@@ -967,9 +968,12 @@ func NewRefreshStep(deployment *Deployment, reg RegisterResourceEvent, old *reso
 		deployment: deployment,
 		old:        old,
 		new:        old,
-		reg:        reg,
+		cts:        cts,
 	}
 }
+
+// True if this is a modern refresh step that should be respected by the snapshot system.
+func (s *RefreshStep) Modern() bool { return s.cts != nil }
 
 func (s *RefreshStep) Op() display.StepOp                           { return OpRefresh }
 func (s *RefreshStep) Deployment() *Deployment                      { return s.deployment }
@@ -1151,8 +1155,8 @@ func (s *RefreshStep) Apply() (resource.Status, StepCompleteFunc, error) {
 
 	complete := func() {
 		// s.reg will be empty for refreshes that are just being done on state, rather than via a program.
-		if s.reg != nil {
-			s.reg.Done(&RegisterResult{State: s.new})
+		if s.cts != nil {
+			s.cts.MustFulfill(s.new)
 		}
 	}
 
