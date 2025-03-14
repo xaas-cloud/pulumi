@@ -1081,9 +1081,31 @@ func (rm *resmon) Invoke(ctx context.Context, req *pulumirpc.ResourceInvokeReque
 func (rm *resmon) Call(ctx context.Context, req *pulumirpc.ResourceCallRequest) (*pulumirpc.CallResponse, error) {
 	// Fetch the token and load up the resource provider if necessary.
 	tok := tokens.ModuleMember(req.GetTok())
-	providerReq, err := parseProviderRequest(
-		tok.Package(), req.GetVersion(),
-		req.GetPluginDownloadURL(), req.GetPluginChecksums(), nil)
+
+	// In order to allow method calls on *provider resources themselves*, we'll check if the token references a provider
+	// type (e.g. pulumi:providers:<package>/<method>). If it does, we need to boot up the provider for `<package>`
+	// itself, rather than the built-in provider (which would ordinarily respond to things of type
+	// `pulumi:providers:...`).
+	//
+	// If we haven't been given a provider type, or if we've got a package reference (which is more specific), we'll use
+	// those as normal.
+	var providerReq providers.ProviderRequest
+	var err error
+	if providers.IsProviderType(tokens.Type(tok)) {
+		parts := strings.Split(tok.Name().String(), "/")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid provider method token %v", tok)
+		}
+
+		packageName := tokens.Package(parts[0])
+		providerReq, err = parseProviderRequest(
+			packageName, req.GetVersion(),
+			req.GetPluginDownloadURL(), req.GetPluginChecksums(), nil)
+	} else {
+		providerReq, err = parseProviderRequest(
+			tok.Package(), req.GetVersion(),
+			req.GetPluginDownloadURL(), req.GetPluginChecksums(), nil)
+	}
 	if err != nil {
 		return nil, err
 	}
